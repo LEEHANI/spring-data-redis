@@ -9,7 +9,7 @@
 - High Availability 를 위해 Redis Sentinel 및 Redis Cluster를 통한 자동 파티셔닝 제공
 - 비동기식(asynchronous replication) 복제를 지원한다.
 
-### docker
+## docker
 
 #### redis 설치
 - docker run -d -p 6379:6379 redis
@@ -25,16 +25,16 @@
   PONG
   ```
 
-### Redis 보안
+## Redis 보안
 - 기본 인증 절차가 없음.
 - 보안이 필요하면 6379 포트에 방화벽이 필요할듯
 - requirepass 옵션을 사용하여 auth 명령어 인증으로 보안 계층 추가해야할듯
--
 
-### redis persistence
+
+## redis persistence
 - redis 는 디스크에 저장(백업)을 위해 여러 옵션을 제공한다.
-- RDS
-- AOF
+- RDS(Redis Database)
+- AOF(Append Only File)
 - No persistence
 - RDB + AOF
 
@@ -59,9 +59,15 @@
 - 훨씬 더 내구성있음.
 - 백그라운드 스레드를 활용하여 기록함. 메인 스레드가 진행중인 작업이 없을 때 수행.
 - AOF 로그는 append만 하기 때문에 write 속도가 빠르고, 정전이 발생해도 손상되지 않는다.
+- text 파일로 저장되므로 수정이 가능하다.
 
 ##### 단점
 - RDB 파일보다 크다.
+
+##### AOF rewrite
+- 특정 시점에 데이터 전체를 다시 쓰는 기능이 있음.
+- 파일이 너무 크면 OS 파일 사이즈 제한에 걸리거나, Redis 재시작시 AOF 파일 로드하는데 시간이 오래걸림
+- 클라이언트 서비스 중단하지 않고 백그라운드에 AOF 재구축
 
 ### Redis Client
 #### Redisson
