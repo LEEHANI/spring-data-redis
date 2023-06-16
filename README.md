@@ -11,8 +11,13 @@
 
 ## docker
 
-#### redis 설치
-- docker run -d -p 6379:6379 redis
+#### redis 설치 및 실행
+- docker pull redis:alpine
+- docker run -d -p 6379:6379 redis:alpine
+
+#### mysql 설치 및 실행
+- docker pull mysql
+- docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=1234 -d -p 3306:3306 mysql
 
 #### redis 접속
 - docker exec -it [CONTAINER ID] sh
@@ -29,7 +34,6 @@
 - 기본 인증 절차가 없음.
 - 보안이 필요하면 6379 포트에 방화벽이 필요할듯
 - requirepass 옵션을 사용하여 auth 명령어 인증으로 보안 계층 추가해야할듯
-
 
 ## redis persistence
 - redis 는 디스크에 저장(백업)을 위해 여러 옵션을 제공한다.

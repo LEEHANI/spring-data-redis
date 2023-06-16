@@ -2,3 +2,19 @@ spring:
   redis:
     port: 6379
     host: localhost
+
+  datasource:
+    hikari:
+      jdbc-url: jdbc:mysql://localhost:3306/redis_test?useUnicode=true&characterEncoding=utf8
+      username: root
+      password: 1234
+      pool-name: redis_test_pool
+      maximum-pool-size: 10
+      minimum-idle: 10
+      connection-timeout: 3000
+
+  jpa:
+    open-in-view: false
+    show-sql: true
+    hibernate:
+      ddl-auto: update
