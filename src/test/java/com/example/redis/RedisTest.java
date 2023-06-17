@@ -1,6 +1,9 @@
 package com.example.redis;
 
 import com.example.redis.entity.Member;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -73,7 +76,8 @@ public class RedisTest {
     Member member = Member.builder().age(20).name("mem").point(100).createdDate(LocalDateTime.now()).build();
     opsForValue.set("member", member);
 
-    Member result = (Member) opsForValue.get("member");
+    ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class);
 
     Assertions.assertThat(result).isEqualTo(member);
   }

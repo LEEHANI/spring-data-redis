@@ -30,6 +30,55 @@
   PONG
   ```
 
+### redis 기본 연결
+```
+@Bean
+public RedisConnectionFactory redisConnectionFactory() {
+  RedisStandaloneConfiguration redisStandaloneConfiguration = new RedisStandaloneConfiguration(redisHost, redisPort);
+  return new LettuceConnectionFactory(redisStandaloneConfiguration);
+}
+```
+- 스프링 부트에서는 기본적으로 lettuce를 사용
+
+### RedisTemplate
+```
+@Bean
+public RedisTemplate<String, String> redisTemplate() {
+  RedisTemplate<String, String> redisTemplate = new RedisTemplate<>();
+  redisTemplate.setKeySerializer(new StringRedisSerializer());
+  redisTemplate.setValueSerializer(new StringRedisSerializer());
+  redisTemplate.setConnectionFactory(redisConnectionFactory());
+  return redisTemplate;
+}
+```
+- spring data redis에서 redis에 operation 위해 사용하는 방식
+- key, value 데이터 타입에 따라 여러개를 선언하여 사용함.
+- key, value 간 데이터를 serialize, deserialize 설정이 필요함. ex) `new StringRedisSerializer()`
+```
+@Bean
+public RedisTemplate<String, Object> defaultRedisTemplate() {
+  RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+  redisTemplate.setKeySerializer(new StringRedisSerializer());
+  redisTemplate.setValueSerializer(new GenericJackson2JsonRedisSerializer(redisObjectMapper));
+  redisTemplate.setConnectionFactory(redisConnectionFactory());
+  return redisTemplate;
+}
+```
+- redis에 객체 타입을 저장하면 내부적으로 클래스 정보를 갖고 있음.
+- `["com.example.redis.entity.Member",{"seq":1,"age":20,"name":"홍길동","point":10000}]`
+- 직렬화, 역직렬화 할때 객체 정보를 참조함. 해당 경로의 객체를 갖고있지 않으면 역직렬화가 불가능
+
+#### LocalDateTime
+- localDateTime을 직렬화, 역직렬화 하는 작업은 까다로움. jackson-datatype-jsr310 의존성이 필요하고, objectMapper를 섬세하게 다룰 수 있어야 함.
+- `this.redisObjectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);`
+- 위 설정을 추가해줘야 localDateTime이 String 형태로 저장됌. `"createdDate":"2023-06-17T15:17:06"`
+- 그러나 redis가 내부적으로 참조하던 클래스 정보를 저장하지 않기 때문에, 객체 데이터를 가져올때 objectmapper로 명시적으로 변환을 해줘야함.
+```
+ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class);
+```
+
+
 ## Redis 보안
 - 기본 인증 절차가 없음.
 - 보안이 필요하면 6379 포트에 방화벽이 필요할듯
