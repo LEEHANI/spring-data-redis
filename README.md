@@ -30,7 +30,7 @@
   PONG
   ```
 
-### redis 기본 연결
+## redis 기본 연결
 ```
 @Bean
 public RedisConnectionFactory redisConnectionFactory() {
@@ -85,9 +85,9 @@ ObjectMapper objectMapper = new ObjectMapper()
 Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class);
 ```
 
-### Redis Cache 사용
+## Redis Cache 사용
 
-#### cache 설정
+### cache 설정
 - @EnableCaching
 ```
 @Bean
@@ -115,7 +115,7 @@ private RedisCacheConfiguration resolveConfiguration(Duration duration) {
 - 여기선 MEMBER_CACHE로 만들었고, ttl은 30초로 설정함. objectma per 에는 class 정보도 같이 저장하도록 설정함.
 
 
-#### 캐시 사용
+### 캐시 사용
 ```
 @Cacheable(cacheManager = "redisCacheManager", key = "#seq", value = MEMBER_CACHE)
 public Member findMember(Long seq) {
@@ -128,6 +128,45 @@ public Member findMember(Long seq) {
 - 주의해야 할 점은, @Cacheable 어노테이션을 사용하면 객체 파싱할 때 class 정보를 넣어줘야 한다..
 - redisTemplate을 사용하면 데이터를 꺼내오고, objectmapper로 변환해주면 되지만, @Cacheable은 메서드 자체를 캐시로 사용하는 것이기 때문에 추가적으로 변환하는 코드를 넣기 어렵다.
 
+## Redis 분산락
+- 멀티 쓰레드 환경에서 동시성 이슈가 발생한다.
+
+### 동시성 이슈
+```
+@Transactional
+public void accumulate(long seq, int point) {
+  Member member = memberRepository.findById(seq).get();
+  member.addPoint(point);
+}
+
+@Test
+public void addPointRaceConditionTest() throws InterruptedException {
+  ExecutorService threadPool = Executors.newFixedThreadPool(100);
+  IntStream.range(0, 100).forEach(i -> threadPool.execute(() -> pointService.accumulate(1L, 100)));
+  threadPool.shutdown();
+  threadPool.awaitTermination(5L, TimeUnit.SECONDS);
+}
+```
+- 쓰레드 100개를 만들고, 멤버1의 포인트를 100 증가시켜보자. 그 결과 멤버1의 포인트가 10000점일 것 같지만, 동시성 이슈로 인해 10000점이 아닐 가능성이 매우 높다.
+
+### redis lock
+- 레디스를 이용해, 락을 걸어 동시성 이슈를 해결해보자.
+- 레디스에 값을 넣어서 락을 획득하고, 작업이 끝나면 키를 삭제하여 언락을 하면 된다.
+```
+public void accumulateWithLock(long memberSeq, int point) {
+  String key = resolveKey(MEMBER_LOCK_CACHE, String.valueOf(memberSeq));
+  memberLockService.lock(key, Duration.ofSeconds(3));
+  memberPointService.accumulate(memberSeq, point);
+  memberLockService.unlock(key);
+}
+```
+- 여기서 lock을 얻을 때까지 시도하는 스핀 락 형태로 구현되어있다.
+- 구현시 주의해야할 점
+  + key가 겹치지 않게 키 설계에 주의해야 한다.
+  + lock을 얻는 작업을 제일 먼저 진행해야 한다.
+  + lock을 얻는 작업은 트랜잭션 범위 밖에서 해야한다. (lock을 얻을 때까지 커넥션을 갖고있으면, 커넥션 부족 이슈 발생)
+  + `setIfAbsent`로 atomic하게 동작해야 한다.
+  + redis 서버가 죽으면 락 해제가 안될 수 있으므로 ttl 설정을 필수로 해줘야 한다.
 
 
 ## Redis 보안

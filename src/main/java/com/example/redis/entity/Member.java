@@ -28,7 +28,10 @@ public class Member {
   private String name;
   @Column(nullable = false)
   private Integer point;
-
   @Column(nullable = false)
   private LocalDateTime createdDate;
+
+  public void addPoint(int point) {
+    this.point = this.point + point;
+  }
 }
