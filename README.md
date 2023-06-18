@@ -5,7 +5,7 @@
 - Key-Value 형태로 데이터를 관리
 - in-memory 데이터 구조 저장소
 - strings, hashes, lists, sets, sorted sets 등의 데이터 구조 제공
-- caching, queuing, event processing 문제를 해결
+- caching, 분산락, queuing, event processing 문제를 해결
 - High Availability 를 위해 Redis Sentinel 및 Redis Cluster를 통한 자동 파티셔닝 제공
 - 비동기식(asynchronous replication) 복제를 지원한다.
 
@@ -40,7 +40,7 @@ public RedisConnectionFactory redisConnectionFactory() {
 ```
 - 스프링 부트에서는 기본적으로 lettuce를 사용
 
-### RedisTemplate
+### Redis RedisTemplate
 ```
 @Bean
 public RedisTemplate<String, String> redisTemplate() {
@@ -53,6 +53,7 @@ public RedisTemplate<String, String> redisTemplate() {
 ```
 - spring data redis에서 redis에 operation 위해 사용하는 방식
 - key, value 데이터 타입에 따라 여러개를 선언하여 사용함.
+  + RedisTemplate<String, String> redisTemplate, RedisTemplate<String, Object> defaultRedisTemplate
 - key, value 간 데이터를 serialize, deserialize 설정이 필요함. ex) `new StringRedisSerializer()`
 ```
 @Bean
@@ -69,14 +70,64 @@ public RedisTemplate<String, Object> defaultRedisTemplate() {
 - 직렬화, 역직렬화 할때 객체 정보를 참조함. 해당 경로의 객체를 갖고있지 않으면 역직렬화가 불가능
 
 #### LocalDateTime
-- localDateTime을 직렬화, 역직렬화 하는 작업은 까다로움. jackson-datatype-jsr310 의존성이 필요하고, objectMapper를 섬세하게 다룰 수 있어야 함.
-- `this.redisObjectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);`
-- 위 설정을 추가해줘야 localDateTime이 String 형태로 저장됌. `"createdDate":"2023-06-17T15:17:06"`
-- 그러나 redis가 내부적으로 참조하던 클래스 정보를 저장하지 않기 때문에, 객체 데이터를 가져올때 objectmapper로 명시적으로 변환을 해줘야함.
+- LocalDateTime을 직렬화, 역직렬화 하는 작업이 까다로움. jackson-datatype-jsr310 의존성이 필요하고, objectMapper를 섬세하게 다룰 수 있어야 함.
 ```
-ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+this.redisObjectMapper = new ObjectMapper()
+  .registerModule(new JavaTimeModule())
+  .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+```
+- 위 설정을 objectmapper 에 추가해줘야 localDateTime 이 String 형태로 저장됌. `"createdDate":"2023-06-17T15:17:06"`
+- 그러나 redis가 내부적으로 참조하던 클래스 정보를 저장하지 않기 때문에, 객체 데이터를 가져올때 objectmapper 로 명시적으로 변환을 해줘야함.
+```
+ObjectMapper objectMapper = new ObjectMapper()
+  .registerModule(new JavaTimeModule())
+  .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class);
 ```
+
+### Redis Cache 사용
+
+#### cache 설정
+- @EnableCaching
+```
+@Bean
+public RedisCacheManager redisCacheManager(RedisConnectionFactory connectionFactory) {
+  RedisCacheManager cacheManager = RedisCacheManagerBuilder.fromConnectionFactory(connectionFactory)
+      .withInitialCacheConfigurations(initialCacheConfiguration())   //캐시 이름 별 캐시 설정 세분화
+      .build();
+
+  return cacheManager;
+}
+
+public Map<String, RedisCacheConfiguration> initialCacheConfiguration() {
+  HashMap<String, RedisCacheConfiguration> configurationMap = new HashMap<>();
+  configurationMap.put(MEMBER_CACHE, resolveConfiguration(Duration.ofSeconds(30)));
+  return configurationMap;
+}
+
+private RedisCacheConfiguration resolveConfiguration(Duration duration) {
+  return RedisCacheConfiguration.defaultCacheConfig().entryTtl(duration)
+      .serializeKeysWith(SerializationPair.fromSerializer(new StringRedisSerializer()))
+      .serializeValuesWith(SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer(cacheObjectMapper)));
+}
+```
+- 캐시 이름별로 캐시 설정을 세분화 할 수 있다.
+- 여기선 MEMBER_CACHE로 만들었고, ttl은 30초로 설정함. objectma per 에는 class 정보도 같이 저장하도록 설정함.
+
+
+#### 캐시 사용
+```
+@Cacheable(cacheManager = "redisCacheManager", key = "#seq", value = MEMBER_CACHE)
+public Member findMember(Long seq) {
+  return memberRepository.findById(seq).get();
+}
+```
+- key는 redis에 저장될 키 정보이다. 키를 생성할 때 파라미터 값으로만 생성하면 충돌이 발생할 수 있다. 그래서 내부적으로 value값을 조합해서 같이 생성한다. (메서드명으로 x) 여기서는 `MEMBER_CACHE::seq` 형식으로 저장된다. ex) `member::1`
+- value에는 캐시 설정 이름을 넣어준다.
+- 물론, redisTemplate으로도 캐시 용도로 사용 가능하지만, @Cacheable 어노테이션으로 캐시를 사용하는게 더 간편해서 많이 쓰이는 방식이다.
+- 주의해야 할 점은, @Cacheable 어노테이션을 사용하면 객체 파싱할 때 class 정보를 넣어줘야 한다..
+- redisTemplate을 사용하면 데이터를 꺼내오고, objectmapper로 변환해주면 되지만, @Cacheable은 메서드 자체를 캐시로 사용하는 것이기 때문에 추가적으로 변환하는 코드를 넣기 어렵다.
+
 
 
 ## Redis 보안
