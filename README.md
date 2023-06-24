@@ -65,29 +65,32 @@ public RedisTemplate<String, Object> defaultRedisTemplate() {
   return redisTemplate;
 }
 ```
-- redis에 객체 타입을 저장하면 내부적으로 클래스 정보를 갖고 있음.
+- `new GenericJackson2JsonRedisSerializer()`로 시리얼라이즈 해서 객체 타입으로 저장하면 redis에 내부적으로 클래스 정보를 갖고 있음.
 - `["com.example.redis.entity.Member",{"seq":1,"age":20,"name":"홍길동","point":10000}]`
 - 직렬화, 역직렬화 할때 객체 정보를 참조함. 해당 경로의 객체를 갖고있지 않으면 역직렬화가 불가능
 
 #### LocalDateTime
 - LocalDateTime을 직렬화, 역직렬화 하는 작업이 까다로움. jackson-datatype-jsr310 의존성이 필요하고, objectMapper를 섬세하게 다룰 수 있어야 함.
 ```
+implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
 this.redisObjectMapper = new ObjectMapper()
   .registerModule(new JavaTimeModule())
   .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 ```
-- 위 설정을 objectmapper 에 추가해줘야 localDateTime 이 String 형태로 저장됌. `"createdDate":"2023-06-17T15:17:06"`
-- 그러나 redis가 내부적으로 참조하던 클래스 정보를 저장하지 않기 때문에, 객체 데이터를 가져올때 objectmapper 로 명시적으로 변환을 해줘야함.
+- objectmapper 에 설정을 추가해줘야 localDateTime 이 String 형태로 저장됌. `"createdDate":"2023-06-17T15:17:06"`
+- objectmapper를 custom해서 사용하면 redis가 내부적으로 참조하던 클래스 정보를 저장하지 않기 때문에, 객체 데이터를 가져올때 object 정보를 객체로 명시적으로 변환이 필요함.
 ```
 ObjectMapper objectMapper = new ObjectMapper()
   .registerModule(new JavaTimeModule())
   .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class);
+
+Member result = objectMapper.convertValue(opsForValue.get("member"), Member.class); //변환
 ```
 
 ## Redis Cache 사용
 
-### cache 설정
+### Cache 설정
 - @EnableCaching
 ```
 @Bean
@@ -112,7 +115,7 @@ private RedisCacheConfiguration resolveConfiguration(Duration duration) {
 }
 ```
 - 캐시 이름별로 캐시 설정을 세분화 할 수 있다.
-- 여기선 MEMBER_CACHE로 만들었고, ttl은 30초로 설정함. objectma per 에는 class 정보도 같이 저장하도록 설정함.
+- 여기선 `MEMBER_CACHE` 로 만들었고, ttl은 30초로 설정함. objectmapper 에는 class 정보도 같이 저장하도록 설정함.
 
 
 ### 캐시 사용
