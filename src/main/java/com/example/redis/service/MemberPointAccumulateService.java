@@ -11,14 +11,19 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class MemberPointAccumulateService {
 
-  private final RedisLockService memberLockService;
+  private final LettuceLockService lettuceLockService;
   private final MemberPointService memberPointService;
 
   public void accumulateWithLock(long memberSeq, int point) {
     String key = resolveKey(MEMBER_LOCK_CACHE, String.valueOf(memberSeq));
-    memberLockService.lock(key, Duration.ofSeconds(3));
-    memberPointService.accumulate(memberSeq, point);
-    memberLockService.unlock(key);
+    try {
+      lettuceLockService.spinLock(key, Duration.ofSeconds(3));
+      memberPointService.accumulate(memberSeq, point);
+    } catch (Exception e) {
+      log.error("[MEMBER_POINT_ACCUMULATE_ERROR] : {}, {}", memberSeq, point, e);
+    } finally {
+      lettuceLockService.unlock(key);
+    }
   }
 
 }

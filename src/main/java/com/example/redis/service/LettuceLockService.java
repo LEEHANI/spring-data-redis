@@ -7,10 +7,11 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class RedisLockService {
+public class LettuceLockService {
+
   private final RedisTemplate<String, String> redisTemplate;
 
-  public void lock(String key, Duration duration) {
+  public void spinLock(String key, Duration duration) {
     //얻을때까지 시도
     while (true) {
       Boolean lockExist = redisTemplate.opsForValue().setIfAbsent(key, "1", duration);
