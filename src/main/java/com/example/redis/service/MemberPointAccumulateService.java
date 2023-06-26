@@ -26,4 +26,15 @@ public class MemberPointAccumulateService {
     }
   }
 
+  public void accumulateWithRetryLock(long memberSeq, int point) {
+    String key = resolveKey(MEMBER_LOCK_CACHE, String.valueOf(memberSeq));
+    try {
+      lettuceLockService.retryLock(key, Duration.ofSeconds(3), 5);
+      memberPointService.accumulate(memberSeq, point);
+    } catch (Exception e) {
+      log.error("[MEMBER_POINT_ACCUMULATE_ERROR] : {}, {}", memberSeq, point, e);
+    } finally {
+      lettuceLockService.unlock(key);
+    }
+  }
 }
