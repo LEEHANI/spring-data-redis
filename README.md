@@ -153,6 +153,8 @@ public void addPointRaceConditionTest() throws InterruptedException {
 - 쓰레드 100개를 만들고, 멤버1의 포인트를 100 증가시켜보자. 그 결과 멤버1의 포인트가 10000점일 것 같지만, 동시성 이슈로 인해 10000점이 아닐 가능성이 매우 높다.
 
 ### redis lock
+
+### spin lock
 - 레디스를 이용해, 락을 걸어 동시성 이슈를 해결해보자.
 - 레디스에 값을 넣어서 락을 획득하고, 작업이 끝나면 키를 삭제하여 언락을 하면 된다.
 ```
@@ -163,14 +165,51 @@ public void accumulateWithLock(long memberSeq, int point) {
   memberLockService.unlock(key);
 }
 ```
-- 여기서 lock을 얻을 때까지 시도하는 스핀 락 형태로 구현되어있다.
 - 구현시 주의해야할 점
   + key가 겹치지 않게 키 설계에 주의해야 한다.
   + lock을 얻는 작업을 제일 먼저 진행해야 한다.
   + lock을 얻는 작업은 트랜잭션 범위 밖에서 해야한다. (lock을 얻을 때까지 커넥션을 갖고있으면, 커넥션 부족 이슈 발생)
   + `setIfAbsent`로 atomic하게 동작해야 한다.
-  + redis 서버가 죽으면 락 해제가 안될 수 있으므로 ttl 설정을 필수로 해줘야 한다.
+  + redis 서버가 죽으면 락 해제가 안될 수 있으므로 `ttl` 설정을 필수로 해줘야 한다.
+- 여기서 lock을 얻을 때까지 시도하는 `스핀 락` 형태로 구현되어있다.
+```
+public void spinLock(String key, Duration duration) {
+  //얻을때까지 시도
+  while (true) {
+    Boolean lockExist = redisTemplate.opsForValue().setIfAbsent(key, "1", duration);
+    if (lockExist) {
+      break;
+    }
+  }
+}
+```
 
+### back-off 기법
+- spin lock 형태로 구현하면, 락을 얻을 때까지 while문으로 레디스에게 try 하므로 부하가 발생한다.
+- 락을 얻을 때까지 무한정 시도하는게 아니라 일정 횟수와 시간을 두고 재시도하는 기법으로 개선이 가능하다.
+```
+/**
+   * 하나의 데이터를 굉장히 많은 유저들이 동시에 갱신할 수 있는 경우에는 사용할 수 없음.
+   * waitGetLockMills = 50ms, 지연 시간은 2배씩 증가
+   * 50, 100, 200, 400, 800 --> 최대 1.5초 지연이 발생할 수 있음.
+   */
+  public void retryLock(String key, Duration duration, int retryNumber) {
+    long waitGetLockMills = 50;
+    for (int i = 0; i < retryNumber; i++) {
+      Boolean lockExist = redisTemplate.opsForValue().setIfAbsent(key, "1", duration);
+      waitGetLock(waitGetLockMills * (i + 1)); //back-off
+      waitGetLockMills = waitGetLockMills << 1;
+      if (lockExist) {
+        return;
+      }
+    }
+    throw new RuntimeException("Lock을 획득하지 못함.");
+  }
+```
+- 첫 시도에는 50ms를 대기하고, 다음번 시도에는 100ms, 200ms, 400ms.. 2배씩 증가한 시간만큼 retry를 한다.
+- 하지만 이 방법에도 허점이 있다.
+- lock이 해제됐음에도 불필요한 대기시간이 발생할 수 있다.
+- 내가 대기하던 중 다른 쓰레드에서 먼저 락을 취득해서 가져갈 수 있다. 순서가 보장되지 않음.
 
 ## Redis 보안
 - 기본 인증 절차가 없음.
