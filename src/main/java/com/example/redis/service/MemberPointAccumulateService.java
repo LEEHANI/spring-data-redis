@@ -5,13 +5,16 @@ import static com.example.redis.RedisCacheNameConst.resolveKey;
 
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MemberPointAccumulateService {
 
   private final LettuceLockService lettuceLockService;
+  private final RedissonLockService redissonLockService;
   private final MemberPointService memberPointService;
 
   public void accumulateWithLock(long memberSeq, int point) {
@@ -37,4 +40,17 @@ public class MemberPointAccumulateService {
       lettuceLockService.unlock(key);
     }
   }
+
+  public void accumulateWithPubSubLock(long memberSeq, int point) {
+    String key = resolveKey(MEMBER_LOCK_CACHE, String.valueOf(memberSeq));
+    try {
+      redissonLockService.lock(key, 5, 3);
+      memberPointService.accumulate(memberSeq, point);
+    } catch (Exception e) {
+      log.error("[MEMBER_POINT_ACCUMULATE_ERROR] : {}, {}", memberSeq, point, e);
+    } finally {
+      redissonLockService.unlock(key);
+    }
+  }
+
 }

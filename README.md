@@ -9,6 +9,11 @@
 - High Availability 를 위해 Redis Sentinel 및 Redis Cluster를 통한 자동 파티셔닝 제공
 - 비동기식(asynchronous replication) 복제를 지원한다.
 
+## Redis Client 종류
+### lettuce
+### Redisson
+### Jedis
+
 ## docker
 
 #### redis 설치 및 실행
@@ -132,7 +137,7 @@ public Member findMember(Long seq) {
 - redisTemplate을 사용하면 데이터를 꺼내오고, objectmapper로 변환해주면 되지만, @Cacheable은 메서드 자체를 캐시로 사용하는 것이기 때문에 추가적으로 변환하는 코드를 넣기 어렵다.
 
 ## Redis 분산락
-- 멀티 쓰레드 환경에서 동시성 이슈가 발생한다.
+- 멀티 쓰레드 환경에서 동시성 이슈가 발생한다. redis 분삭락을 쓰면 이를 해결할 수 있음.
 
 ### 동시성 이슈
 ```
@@ -152,26 +157,24 @@ public void addPointRaceConditionTest() throws InterruptedException {
 ```
 - 쓰레드 100개를 만들고, 멤버1의 포인트를 100 증가시켜보자. 그 결과 멤버1의 포인트가 10000점일 것 같지만, 동시성 이슈로 인해 10000점이 아닐 가능성이 매우 높다.
 
-### redis lock
-
-### spin lock
+### redis spin lock
 - 레디스를 이용해, 락을 걸어 동시성 이슈를 해결해보자.
 - 레디스에 값을 넣어서 락을 획득하고, 작업이 끝나면 키를 삭제하여 언락을 하면 된다.
 ```
 public void accumulateWithLock(long memberSeq, int point) {
   String key = resolveKey(MEMBER_LOCK_CACHE, String.valueOf(memberSeq));
-  memberLockService.lock(key, Duration.ofSeconds(3));
+  memberLockService.lock(key, Duration.ofSeconds(3)); //락 획득
   memberPointService.accumulate(memberSeq, point);
-  memberLockService.unlock(key);
+  memberLockService.unlock(key); //락 해제
 }
 ```
 - 구현시 주의해야할 점
   + key가 겹치지 않게 키 설계에 주의해야 한다.
   + lock을 얻는 작업을 제일 먼저 진행해야 한다.
   + lock을 얻는 작업은 트랜잭션 범위 밖에서 해야한다. (lock을 얻을 때까지 커넥션을 갖고있으면, 커넥션 부족 이슈 발생)
-  + `setIfAbsent`로 atomic하게 동작해야 한다.
+  + `setIfAbsent`로 `atomic`하게 동작해야 한다.
   + redis 서버가 죽으면 락 해제가 안될 수 있으므로 `ttl` 설정을 필수로 해줘야 한다.
-- 여기서 lock을 얻을 때까지 시도하는 `스핀 락` 형태로 구현되어있다.
+- lock을 얻을 때까지 시도하는 `스핀 락` 형태로 구현할 수 있다.
 ```
 public void spinLock(String key, Duration duration) {
   //얻을때까지 시도
@@ -198,7 +201,7 @@ public void spinLock(String key, Duration duration) {
     for (int i = 0; i < retryNumber; i++) {
       Boolean lockExist = redisTemplate.opsForValue().setIfAbsent(key, "1", duration);
       waitGetLock(waitGetLockMills * (i + 1)); //back-off
-      waitGetLockMills = waitGetLockMills << 1;
+      waitGetLockMills = waitGetLockMills << 1; //지연 시간 2배 증가
       if (lockExist) {
         return;
       }
@@ -208,8 +211,31 @@ public void spinLock(String key, Duration duration) {
 ```
 - 첫 시도에는 50ms를 대기하고, 다음번 시도에는 100ms, 200ms, 400ms.. 2배씩 증가한 시간만큼 retry를 한다.
 - 하지만 이 방법에도 허점이 있다.
-- lock이 해제됐음에도 불필요한 대기시간이 발생할 수 있다.
-- 내가 대기하던 중 다른 쓰레드에서 먼저 락을 취득해서 가져갈 수 있다. 순서가 보장되지 않음.
+  - lock이 해제됐음에도 불필요한 대기시간이 발생할 수 있다.
+  - 내가 대기하던 중 다른 쓰레드에서 먼저 락을 취득해서 가져갈 수 있다. 순서가 보장되지 않음.
+
+## Redisson
+- redisson은 lettuce의 spin lock 형태 대신에 pub-sub 구조로 락을 더 효율적으로 얻을 수 있다.
+- lock이 해제되면 subscriber에게 락이 해제됐음을 알려주어 불필요한 대기를 하지 않아도 된다.
+- 또한 레디스에 retry를 하지 않아도 lock이 해제됐음을 알 수 있기 때문에 레디스에 부하가 발생하지 않는다.
+```
+public void lock(String key, int waitTimeout, int ttl) {
+  RLock lock = redissonClient.getLock(key);
+
+  try {
+    boolean lockExists = lock.tryLock(waitTimeout, ttl, TimeUnit.SECONDS);
+    if (lockExists) {
+      return;
+    }
+    throw new RuntimeException("Lock을 획득하지 못함.");
+  } catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+  } catch (RuntimeException e) {
+    throw e;
+  }
+}
+```
+-
 
 ## Redis 보안
 - 기본 인증 절차가 없음.
@@ -253,11 +279,6 @@ public void spinLock(String key, Duration duration) {
 - 특정 시점에 데이터 전체를 다시 쓰는 기능이 있음.
 - 파일이 너무 크면 OS 파일 사이즈 제한에 걸리거나, Redis 재시작시 AOF 파일 로드하는데 시간이 오래걸림
 - 클라이언트 서비스 중단하지 않고 백그라운드에 AOF 재구축
-
-### Redis Client
-#### Redisson
-#### Jedis
-#### lettuce
 
 
 

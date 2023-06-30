@@ -31,4 +31,23 @@ class MemberPointAccumulateServiceTest {
     threadPool.shutdown();
     threadPool.awaitTermination(10L, TimeUnit.SECONDS);
   }
+
+  @Test
+  public void addPointTestWithRetryLock() throws InterruptedException {
+    ExecutorService threadPool = Executors.newFixedThreadPool(100);
+    IntStream.range(0, 100).forEach(i -> threadPool.execute(() -> memberPointAccumulateService.accumulateWithRetryLock(1L, 100)));
+    threadPool.shutdown();
+    threadPool.awaitTermination(10L, TimeUnit.SECONDS);
+
+    //100개가 동시에 들어오는 경우에는 당연히 제대로 동작하지 않음.
+    // 하지만 실무 환경에서 이런 상황이 나올 수 없다면, 충분히 사용할 수 있다.
+  }
+
+  @Test
+  public void addPointTestWithPubSubLock() throws InterruptedException {
+    ExecutorService threadPool = Executors.newFixedThreadPool(100);
+    IntStream.range(0, 100).forEach(i -> threadPool.execute(() -> memberPointAccumulateService.accumulateWithPubSubLock(1L, 100)));
+    threadPool.shutdown();
+    threadPool.awaitTermination(10L, TimeUnit.SECONDS);
+  }
 }
