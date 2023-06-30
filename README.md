@@ -2,17 +2,22 @@
 # Spring-Data-Redis
 
 ## Redis 란?
-- Key-Value 형태로 데이터를 관리
-- in-memory 데이터 구조 저장소
+- `Key-Value` 형태로 데이터를 관리
+- `in-memory` 데이터 구조 저장소
+- `싱글 스레드 방식`을 사용. 그렇기에 race condition이 거의 발생하지 않음.
+  + 싱글 스레드이기 때문에 O(n) 연산은 주의해서 사용해야함.
 - strings, hashes, lists, sets, sorted sets 등의 데이터 구조 제공
-- caching, 분산락, queuing, event processing 문제를 해결
+- caching, 분산락, queuing, event processing 문제를 해결, rate limiter
 - High Availability 를 위해 Redis Sentinel 및 Redis Cluster를 통한 자동 파티셔닝 제공
 - 비동기식(asynchronous replication) 복제를 지원한다.
 
 ## Redis Client 종류
 ### lettuce
-### Redisson
+- 비동기 이벤트 루프 방식
 ### Jedis
+- 동기 방식
+### Redisson
+- 분산락을 편하게 사용
 
 ## docker
 
@@ -235,7 +240,25 @@ public void lock(String key, int waitTimeout, int ttl) {
   }
 }
 ```
--
+- `lock.tryLock(long waitTime, long leaseTime, TimeUnit unit)`.
+  + waitTime : 락을 획득할때 까지 대기 시간
+  + leaseTime : 락 획득 후 만료 시간
+
+## Rate Limiter
+- redis를 이용해 rate limiter(처리율 제한 장치)를 활용할 수 있다.
+  + rate limiter: n(ttl)의 시간동안 x개의 요청만 처리하고, 나머지 요청은 실패처리로 동작하도록 제어.
+- redis에 특정 key에 대해 ttl을 걸어놓고, 요청이 들어올 때마다 1씩 증가시킨다. x개 이상 요청이 들어오면 실패 처리하도록 구현하면 된다.
+- n의 시간마다 요청을 다시 받을 수 있게 초기화 해주는 작업이 별도로 필요하다. (스케줄링)
+```
+Long tokens = redisOperation.increment(rateLimiterKey); //1증가 시키며 값 가져오기
+if (tokens != null && tokens <= maximumCallCount) {
+  //continue
+} else {
+  //fail
+  log.info("[TOO_MANY_REQUESTS] key: {}", property.getRedisKey());
+}
+```
+
 
 ## Redis 보안
 - 기본 인증 절차가 없음.

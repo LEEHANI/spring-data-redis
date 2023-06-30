@@ -17,4 +17,13 @@ spring:
     open-in-view: false
     show-sql: true
     hibernate:
-      ddl-auto: update
+    ddl-auto: update
+
+
+api:
+  rate-limiter:
+    properties:
+      - uri: /v1/random-id
+        method: GET
+        maximumCallCount: 10
+        refreshPeriod: 60s
