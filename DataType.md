@@ -22,6 +22,7 @@
   ```
 
 ### Key expiration 
+- 만료 시간을 지정하지 않으면 무제한임. 
 - seconds or milliseconds 설정 가능 
 - expire 정보는 디스크에 복제되어 유지되며, redis 가 중지된 상태일 때는 시간이 가상으로 경과함.
 - ```
@@ -31,13 +32,20 @@
   (integer) 9 //남은 시간
   ```
 ## Strings
+- set [key] [value]
 - ```
   > set mykey somevalue
   OK
   > get mykey
   "somevalue"
   ```
-- set mykey newval nx 키가 존재하면 실패 
+- `nx`는 key가 존재 하지 않을 때 저장함. set the key if it does not already exist
+- ```
+  > set mykey newval nx 
+  OK 
+  > set mykey newval nx
+  (nil)  //키가 존재하면 nil로 출력
+  ```
 - set mykey newval xx 키가 존재하면 OK
 
 ## Lists

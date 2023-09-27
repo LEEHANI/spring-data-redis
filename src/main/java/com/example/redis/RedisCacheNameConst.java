@@ -9,5 +9,4 @@ public class RedisCacheNameConst {
   public static String resolveKey(String keyPrefix, String ... identifiers) {
     return MessageFormat.format(keyPrefix, identifiers);
   }
-
 }
